@@ -1,0 +1,162 @@
+import json
+import frappe
+import anthropic
+from erp_ai.ai.registry import get_functions
+from erp_ai.ai.executor import execute_tool
+
+DEFAULT_MODEL = "claude-sonnet-5"
+
+# NOTE: every tool name mentioned below is registered in erp_ai/ai/tools/.
+# The previous version of this prompt referenced get_doctype_schema,
+# create_erp_document, execute_doc_method, and get_system_analytics - none
+# of which existed anywhere in the codebase, so the model would either
+# hallucinate a call that failed with "Tool not registered" or quietly
+# give up on anything involving record creation.
+SYSTEM_PROMPT = """
+You are an AI assistant embedded in ERPNext, with tool access to query, analyze, and manage
+records on behalf of the current logged-in user. You operate strictly within that user's
+ERPNext permissions - every tool enforces them, so if a tool returns a permission error,
+tell the user plainly that they lack the required rights; do not try to work around it.
+
+Core Operational Rules:
+
+1. Schema discovery:
+   - Before create_document or update_document, if you're not certain of the exact field
+     names or which fields are required, call get_doctype_meta first.
+
+2. Reading & searching data:
+   - Use list_documents for filtered lists, get_document for a single record by name.
+
+3. Creating & changing records:
+   - Use create_document to make a new record (e.g. Sales Order, Customer, Item, Lead, Task).
+   - Use update_document to edit an existing draft record.
+   - Use submit_document / cancel_document / delete_document for lifecycle actions.
+     A submitted document must be cancelled before it can be updated or deleted.
+
+4. Analytics & statistics:
+   - Use analyze_data for counts, sums, averages, min/max, group-by totals (e.g. "total
+     sales per customer"), and distinct values. Prefer this over fetching raw records and
+     computing totals yourself - it is faster and always permission-filtered.
+
+5. Reports, dashboards & charts:
+   - Use create_report to save a Report Builder view of a DocType.
+   - Use create_dashboard_chart to build a chart: 'time_series' mode for a trend over a
+     date field (e.g. monthly revenue), 'group_by' mode for totals broken down by a field
+     (e.g. sales by customer). Then use create_dashboard to bundle one or more charts
+     together under a named dashboard.
+   - These all persist real records in ERPNext, so confirm the details with the user
+     (title, DocType, fields involved) before calling them if there's any ambiguity.
+
+6. Language:
+   - Match the user's language (Arabic or English). Keep responses clear and professional.
+"""
+
+
+def _get_anthropic_client():
+    settings = frappe.get_single("AI Settings")
+    api_key = settings.get_password("api_key")
+    if not api_key:
+        frappe.throw("Anthropic API Key is missing. Please set it in AI Settings.")
+
+    model_name = settings.model if settings.model and "claude" in settings.model else DEFAULT_MODEL
+    return anthropic.Anthropic(api_key=api_key), model_name
+
+
+def _convert_param_schema(prop_data):
+    prop_type = str(prop_data.get("type", "string")).lower()
+
+    if prop_type in ("string", "text"):
+        p_type = "string"
+    elif prop_type in ("integer", "number", "float"):
+        p_type = "integer" if prop_type == "integer" else "number"
+    elif prop_type == "boolean":
+        p_type = "boolean"
+    elif prop_type == "object":
+        p_type = "object"
+    elif prop_type == "array":
+        p_type = "array"
+    else:
+        p_type = "string"
+
+    schema = {"type": p_type, "description": prop_data.get("description", "")}
+
+    if "enum" in prop_data:
+        schema["enum"] = prop_data["enum"]
+
+    if p_type == "array":
+        items_data = prop_data.get("items")
+        schema["items"] = _convert_param_schema(items_data) if isinstance(items_data, dict) else {"type": "string"}
+    elif p_type == "object" and "properties" in prop_data:
+        schema["properties"] = {
+            sub_name: _convert_param_schema(sub_data)
+            for sub_name, sub_data in prop_data["properties"].items()
+        }
+        if "required" in prop_data:
+            schema["required"] = prop_data["required"]
+
+    return schema
+
+
+def _build_claude_tools():
+    claude_tools = []
+    for fn in get_functions():
+        tool_def = {
+            "name": fn["name"],
+            "description": fn["description"],
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": fn["parameters"].get("required") or [],
+            },
+        }
+        for prop_name, prop_data in fn["parameters"].get("properties", {}).items():
+            tool_def["input_schema"]["properties"][prop_name] = _convert_param_schema(prop_data)
+        claude_tools.append(tool_def)
+    return claude_tools
+
+
+def ask_claude(message: str, conversation: list = None):
+    client, model_name = _get_anthropic_client()
+    claude_tools = _build_claude_tools()
+
+    messages_payload = []
+    if conversation and isinstance(conversation, list):
+        for msg in conversation:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ("user", "assistant") and content:
+                messages_payload.append({"role": role, "content": content})
+
+    messages_payload.append({"role": "user", "content": message})
+
+    response = client.messages.create(
+        model=model_name, max_tokens=2500, system=SYSTEM_PROMPT,
+        messages=messages_payload, tools=claude_tools,
+    )
+
+    tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
+    max_tool_iterations = 5
+    iteration = 0
+
+    while tool_use_block and iteration < max_tool_iterations:
+        iteration += 1
+        tool_result = execute_tool(tool_use_block.name, tool_use_block.input or {})
+
+        messages_payload.append({"role": "assistant", "content": response.content})
+        messages_payload.append({
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": tool_use_block.id,
+                "content": json.dumps(tool_result, ensure_ascii=False, default=str),
+            }],
+        })
+
+        response = client.messages.create(
+            model=model_name, max_tokens=2500, system=SYSTEM_PROMPT,
+            messages=messages_payload, tools=claude_tools,
+        )
+        tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
+
+    text_block = next((b for b in response.content if b.type == "text"), None)
+    return text_block.text if text_block else "Done."
