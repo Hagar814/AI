@@ -10,6 +10,20 @@ from erp_ai.ai.tools._security import (
     AGGREGATE_FUNCTIONS,
 )
 
+# Frappe's ORM (get_list/get_all/get_value) now rejects SQL function calls
+# written as plain strings in `fields` - e.g. "count(name) as value" raises
+# "SQL functions are not allowed as strings in SELECT" on current Frappe
+# versions (this landed alongside the CVE-2025-30212/30217 SQL-injection
+# fixes). Aggregates must be passed as a dict instead:
+#   {"COUNT": "name", "as": "value"}   ->  COUNT(`name`) AS `value`
+# See: https://github.com/frappe/frappe/pull/32381
+SQL_FUNCTION = {"count": "COUNT", "sum": "SUM", "avg": "AVG", "min": "MIN", "max": "MAX"}
+
+
+def _agg_field(fn, field, alias):
+    """Build a Frappe-ORM-safe aggregate field dict, e.g. {'SUM': 'grand_total', 'as': 'value'}."""
+    return {SQL_FUNCTION[fn]: field or "*", "as": alias}
+
 
 def _default_order_field(doctype):
     try:
@@ -58,14 +72,14 @@ def analyze_data(doctype, operation, field=None, fields=None, filters=None,
     clean_filters = validate_filters(doctype, filters)
 
     if operation == "count":
-        result = frappe.get_list(doctype, filters=clean_filters, fields=["count(name) as value"])
+        result = frappe.get_list(doctype, filters=clean_filters, fields=[_agg_field("count", "name", "value")])
         return {"operation": "count", "value": (result[0].value if result else 0)}
 
     if operation in ("sum", "avg", "min", "max"):
         if not field:
             frappe.throw(f"`field` is required for '{operation}'.")
         validate_fieldname(doctype, field)
-        result = frappe.get_list(doctype, filters=clean_filters, fields=[f"{operation}(`{field}`) as value"])
+        result = frappe.get_list(doctype, filters=clean_filters, fields=[_agg_field(operation, field, "value")])
         value = result[0].value if result else 0
         return {"operation": operation, "field": field, "value": value or 0}
 
@@ -75,10 +89,11 @@ def analyze_data(doctype, operation, field=None, fields=None, filters=None,
         validate_fieldname(doctype, field)
         result = frappe.get_list(
             doctype, filters=clean_filters,
-            fields=[f"distinct `{field}` as value"],
+            fields=[field],
+            distinct=1,
             limit_page_length=min(limit, 100),
         )
-        return {"operation": "distinct", "field": field, "values": [r.value for r in result]}
+        return {"operation": "distinct", "field": field, "values": [r[field] for r in result]}
 
     if operation == "group":
         if not group_by:
@@ -89,19 +104,19 @@ def analyze_data(doctype, operation, field=None, fields=None, filters=None,
         if agg not in AGGREGATE_FUNCTIONS:
             frappe.throw(f"Unsupported aggregate: '{agg}'. Use one of {sorted(AGGREGATE_FUNCTIONS)}.")
 
+        value_field = None
         if agg == "count":
-            value_expr = "count(name)"
-            value_field = None
+            agg_field = _agg_field("count", "name", "value")
         else:
             value_field = field or "name"
             validate_fieldname(doctype, value_field)
-            value_expr = f"{agg}(`{value_field}`)"
+            agg_field = _agg_field(agg, value_field, "value")
 
         result = frappe.get_list(
             doctype,
             filters=clean_filters,
-            fields=[f"`{group_by}` as group_field", f"{value_expr} as value"],
-            group_by=f"`{group_by}`",
+            fields=[f"{group_by} as group_field", agg_field],
+            group_by=group_by,
             order_by="value desc",
             limit_page_length=min(limit, 100),
         )

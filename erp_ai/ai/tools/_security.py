@@ -112,7 +112,7 @@ def validate_order_by(doctype, order_by, default="creation desc"):
     if direction not in ("asc", "desc"):
         direction = "asc"
     validate_fieldname(doctype, field)
-    return f"`{field}` {direction}"
+    return f"{field} {direction}"
 
 
 def parse_filters(filters):
