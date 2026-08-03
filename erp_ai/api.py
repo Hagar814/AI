@@ -377,6 +377,13 @@ def call_ai_service(message, conversation):
             reply = "".join([str(chunk) for chunk in response_generator if chunk])
         else:
             reply = str(response_generator or "")
+    except frappe.ValidationError as e:
+        # Deliberate, specific frappe.throw()s (bad AI Settings, an Anthropic
+        # API error, a doctype validation failure) - these carry a real,
+        # actionable message, so show it instead of masking it behind the
+        # generic text. Anything not a ValidationError falls through below.
+        _safe_log("ERP AI API Error", frappe.get_traceback())
+        reply = str(e)
     except Exception:
         _safe_log("ERP AI API Error", frappe.get_traceback())
         reply = GENERIC_ERROR_MESSAGE[lang]

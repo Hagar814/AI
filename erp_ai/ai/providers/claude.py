@@ -137,6 +137,20 @@ def _build_claude_tools():
     return claude_tools
 
 
+def _call_claude(client, model_name, messages_payload, claude_tools):
+    """Anthropic SDK errors (bad request, rate limit, overloaded, etc.) were
+    previously uncaught here, so they fell all the way through to api.py's
+    generic handler with no clue which of the many tool calls in a
+    multi-chart request actually failed. Surface a specific message instead."""
+    try:
+        return client.messages.create(
+            model=model_name, max_tokens=2500, system=SYSTEM_PROMPT,
+            messages=messages_payload, tools=claude_tools,
+        )
+    except anthropic.APIError as e:
+        frappe.throw(f"Anthropic API error: {getattr(e, 'message', str(e))}")
+
+
 def ask_claude(message: str, conversation: list = None):
     client, model_name = _get_anthropic_client()
     claude_tools = _build_claude_tools()
@@ -151,10 +165,7 @@ def ask_claude(message: str, conversation: list = None):
 
     messages_payload.append({"role": "user", "content": message})
 
-    response = client.messages.create(
-        model=model_name, max_tokens=2500, system=SYSTEM_PROMPT,
-        messages=messages_payload, tools=claude_tools,
-    )
+    response = _call_claude(client, model_name, messages_payload, claude_tools)
 
     tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
     # A multi-chart dashboard (one create_dashboard_chart call per KPI, plus one
@@ -176,10 +187,7 @@ def ask_claude(message: str, conversation: list = None):
             }],
         })
 
-        response = client.messages.create(
-            model=model_name, max_tokens=2500, system=SYSTEM_PROMPT,
-            messages=messages_payload, tools=claude_tools,
-        )
+        response = _call_claude(client, model_name, messages_payload, claude_tools)
         tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
 
     text_block = next((b for b in response.content if b.type == "text"), None)
