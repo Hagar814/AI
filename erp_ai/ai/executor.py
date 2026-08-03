@@ -15,6 +15,16 @@ import frappe
 from erp_ai.ai.registry import get_tool
 
 
+def _safe_log(title, message):
+    """log_error() itself hitting an error (DB state, title/message limits,
+    etc.) must never turn a recoverable tool failure into an unhandled
+    exception that escapes execute_tool - so this is never allowed to raise."""
+    try:
+        frappe.log_error(title=title, message=message)
+    except Exception:
+        pass
+
+
 def execute_tool(name: str, args: dict = None):
     args = args or {}
 
@@ -34,13 +44,13 @@ def execute_tool(name: str, args: dict = None):
     except TypeError as e:
         # Almost always means the model passed an argument the tool doesn't
         # accept, or omitted a required one.
-        frappe.log_error(
-            title=f"ERP AI Executor Argument Error ({name})",
-            message=f"{frappe.get_traceback()}\n\nArgs received: {clean_args}",
+        _safe_log(
+            f"ERP AI Executor Argument Error ({name})",
+            f"{frappe.get_traceback()}\n\nArgs received: {clean_args}",
         )
         return {"error": f"Invalid arguments for tool '{name}': {e}"}
     except frappe.PermissionError as e:
         return {"error": str(e) or f"Permission denied for tool '{name}'."}
     except Exception as e:
-        frappe.log_error(title=f"ERP AI Executor Error ({name})", message=frappe.get_traceback())
+        _safe_log(f"ERP AI Executor Error ({name})", frappe.get_traceback())
         return {"error": str(e)}

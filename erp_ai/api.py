@@ -361,7 +361,7 @@ def ask(message, conversation=None, file_data=None, file_name=None, conversation
         if save_res.get("status") == "success":
             res["conversation_name"] = save_res.get("name")
     except Exception:
-        frappe.log_error(title="Auto Save Conversation Error", message=frappe.get_traceback())
+        _safe_log("Auto Save Conversation Error", frappe.get_traceback())
 
     return res
 
@@ -378,7 +378,7 @@ def call_ai_service(message, conversation):
         else:
             reply = str(response_generator or "")
     except Exception:
-        frappe.log_error(title="ERP AI API Error", message=frappe.get_traceback())
+        _safe_log("ERP AI API Error", frappe.get_traceback())
         reply = GENERIC_ERROR_MESSAGE[lang]
 
     if not reply or not reply.strip():
@@ -424,7 +424,7 @@ def save_conversation(conversation_name=None, title=None, messages=None):
             frappe.db.commit()
             return {"status": "success", "name": doc.name}
     except Exception:
-        frappe.log_error(title="Save Conversation Error", message=frappe.get_traceback())
+        _safe_log("Save Conversation Error", frappe.get_traceback())
         return {"status": "error", "message": "Could not save conversation."}
 
 
@@ -440,7 +440,7 @@ def get_user_conversations():
         )
         return {"status": "success", "data": conversations}
     except Exception:
-        frappe.log_error(title="Get User Conversations Error", message=frappe.get_traceback())
+        _safe_log("Get User Conversations Error", frappe.get_traceback())
         return {"status": "error", "data": []}
 
 
@@ -466,7 +466,7 @@ def load_conversation(conversation_name):
             "messages": messages
         }
     except Exception:
-        frappe.log_error(title="Load Conversation Error", message=frappe.get_traceback())
+        _safe_log("Load Conversation Error", frappe.get_traceback())
         return {"status": "error", "message": "Could not load conversation.", "messages": []}
 
 
@@ -479,5 +479,5 @@ def delete_conversation(conversation_name):
             return {"status": "success", "message": "Conversation deleted successfully."}
         return {"status": "error", "message": "Conversation not found."}
     except Exception:
-        frappe.log_error(title="Delete Conversation Error", message=frappe.get_traceback())
+        _safe_log("Delete Conversation Error", frappe.get_traceback())
         return {"status": "error", "message": "Could not delete conversation."}
