@@ -346,37 +346,11 @@ def ask(message, conversation=None, file_data=None, file_name=None, conversation
 
     trimmed_conversation = trim_chat_history(conversation)
     full_message = message or ""
-    
+
     if file_data:
         full_message = f"[Attached File: {file_name}]\nFile Content:\n{file_data}\n\nUser Question:\n{full_message}"
-        res = call_ai_service(full_message, trimmed_conversation)
-    else:
-        lang = _detect_lang(full_message)
-        pending = _extract_pending_confirmation(trimmed_conversation)
 
-        if pending:
-            if _is_affirmative(full_message):
-                res = _execute_pending_action(pending, lang)
-            elif _is_negative(full_message):
-                msg = "No problem." if lang == "English" else "تمام، ولا يهمك."
-                res = {"reply": msg}
-            else:
-                res = call_ai_service(full_message, trimmed_conversation)
-        else:
-            lower_message = full_message.lower()
-            looks_like_request = any(kw in lower_message for kw in REPORT_TRIGGER_KEYWORDS)
-
-            if looks_like_request:
-                intent = _classify_intent(full_message)
-                action = intent.get("action")
-                if action == "create_report":
-                    res = _propose_report_creation(intent, full_message, trimmed_conversation, lang)
-                elif action == "create_dashboard":
-                    res = _propose_dashboard_creation(intent, full_message, trimmed_conversation, lang)
-                else:
-                    res = call_ai_service(full_message, trimmed_conversation)
-            else:
-                res = call_ai_service(full_message, trimmed_conversation)
+    res = call_ai_service(full_message, trimmed_conversation)
 
     try:
         updated_conversation = list(conversation)
@@ -387,7 +361,7 @@ def ask(message, conversation=None, file_data=None, file_name=None, conversation
         if save_res.get("status") == "success":
             res["conversation_name"] = save_res.get("name")
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "Auto Save Conversation Error")
+        frappe.log_error(title="Auto Save Conversation Error", message=frappe.get_traceback())
 
     return res
 
@@ -404,7 +378,7 @@ def call_ai_service(message, conversation):
         else:
             reply = str(response_generator or "")
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "ERP AI API Error")
+        frappe.log_error(title="ERP AI API Error", message=frappe.get_traceback())
         reply = GENERIC_ERROR_MESSAGE[lang]
 
     if not reply or not reply.strip():
@@ -450,7 +424,7 @@ def save_conversation(conversation_name=None, title=None, messages=None):
             frappe.db.commit()
             return {"status": "success", "name": doc.name}
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "Save Conversation Error")
+        frappe.log_error(title="Save Conversation Error", message=frappe.get_traceback())
         return {"status": "error", "message": "Could not save conversation."}
 
 
@@ -466,7 +440,7 @@ def get_user_conversations():
         )
         return {"status": "success", "data": conversations}
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "Get User Conversations Error")
+        frappe.log_error(title="Get User Conversations Error", message=frappe.get_traceback())
         return {"status": "error", "data": []}
 
 
@@ -477,7 +451,7 @@ def load_conversation(conversation_name):
             return {"status": "error", "message": "Conversation not found."}
 
         doc = frappe.get_doc("AI Conversation", conversation_name)
-        
+
         messages = []
         if doc.messages:
             if isinstance(doc.messages, str):
@@ -492,9 +466,9 @@ def load_conversation(conversation_name):
             "messages": messages
         }
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "Load Conversation Error")
+        frappe.log_error(title="Load Conversation Error", message=frappe.get_traceback())
         return {"status": "error", "message": "Could not load conversation.", "messages": []}
-        
+
 
 @frappe.whitelist()
 def delete_conversation(conversation_name):
@@ -505,5 +479,5 @@ def delete_conversation(conversation_name):
             return {"status": "success", "message": "Conversation deleted successfully."}
         return {"status": "error", "message": "Conversation not found."}
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "Delete Conversation Error")
+        frappe.log_error(title="Delete Conversation Error", message=frappe.get_traceback())
         return {"status": "error", "message": "Could not delete conversation."}

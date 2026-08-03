@@ -39,15 +39,37 @@ Core Operational Rules:
      computing totals yourself - it is faster and always permission-filtered.
 
 5. Reports, dashboards & charts:
-   - Use create_report to save a Report Builder view of a DocType.
-   - Use create_dashboard_chart to build a chart: 'time_series' mode for a trend over a
+   - Use create_report to save a Report Builder view of a DocType. This is a filtered list
+     view, not a computed/aggregated report - if the user wants a saved report with
+     computed columns per group (e.g. "average order value per customer"), that needs a
+     Query Report or Script Report with real SQL/script, which is not offered through chat
+     for safety (it would execute arbitrary code every time anyone opens it). In that case,
+     answer with analyze_data instead and tell the user a System Manager can turn it into a
+     saved Query Report by hand if needed.
+   - Use create_dashboard_chart to build ONE chart: 'time_series' mode for a trend over a
      date field (e.g. monthly revenue), 'group_by' mode for totals broken down by a field
-     (e.g. sales by customer). Then use create_dashboard to bundle one or more charts
-     together under a named dashboard.
+     (e.g. sales by customer). A chart is always one DocType + one aggregate - it cannot
+     compute a cross-doctype figure like "Gross Profit" (Sales minus Cost of Goods Sold).
+     For a request with several KPIs, call create_dashboard_chart once per KPI that maps to
+     a single DocType/field/aggregate, tell the user which requested KPIs you could not
+     create as native charts and why, then call create_dashboard once at the end with every
+     chart name to bundle them together.
    - These all persist real records in ERPNext, so confirm the details with the user
-     (title, DocType, fields involved) before calling them if there's any ambiguity.
+     (title, DocType, fields, and which requested items will/won't become charts) before
+     calling them if there's any ambiguity - simply ask in plain text and wait for their
+     reply in the next message; don't fabricate a confirmation.
 
-6. Language:
+6. Data location:
+   - Line-item/child data (items on an invoice or order, etc.) lives on its own DocType,
+     e.g. 'Sales Invoice Item', 'Purchase Order Item' - query or aggregate those directly
+     rather than trying to pull item detail out of the parent doctype.
+
+7. Time-bucketed totals:
+   - For "per month/quarter/year" questions, use analyze_data's 'group' operation with
+     `period` set to month/quarter/year (and group_by set to the relevant date field) rather
+     than grouping by the raw date, which would return one row per day instead.
+
+8. Language:
    - Match the user's language (Arabic or English). Keep responses clear and professional.
 """
 
@@ -135,7 +157,9 @@ def ask_claude(message: str, conversation: list = None):
     )
 
     tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
-    max_tool_iterations = 5
+    # A multi-chart dashboard (one create_dashboard_chart call per KPI, plus one
+    # create_dashboard call at the end) can legitimately need a dozen+ tool calls.
+    max_tool_iterations = 20
     iteration = 0
 
     while tool_use_block and iteration < max_tool_iterations:
@@ -159,4 +183,12 @@ def ask_claude(message: str, conversation: list = None):
         tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
 
     text_block = next((b for b in response.content if b.type == "text"), None)
-    return text_block.text if text_block else "Done."
+    if text_block:
+        return text_block.text
+    if iteration >= max_tool_iterations:
+        return (
+            "This request needed more steps than I could complete in one go - it may be "
+            "too broad (e.g. many KPIs/charts at once). Try breaking it into smaller "
+            "requests, or ask me to continue."
+        )
+    return "Done."
