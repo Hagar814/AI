@@ -101,6 +101,10 @@ def create_dashboard_chart(chart_name, doctype, mode, aggregate="Count", value_f
         "document_type": doctype,
         "type": visual_type,
         "module": module or frappe.get_meta(doctype).module or "Core",
+        # Dashboard Chart has `filters_json` as a mandatory field even when
+        # there are no filters - Frappe rejects the insert with "Value
+        # missing for Dashboard Chart: Filters JSON" if it's left unset.
+        "filters_json": "[]",
     }
 
     if mode == "time_series":
@@ -119,6 +123,10 @@ def create_dashboard_chart(chart_name, doctype, mode, aggregate="Count", value_f
             "value_based_on": value_field,
             "timeseries": 1,
             "time_interval": time_interval,
+            # Required alongside timeseries=1 - without it the chart has no
+            # window to compute over. "Last Year" gives the widest default
+            # view; the model can still ask the user for a narrower one.
+            "timespan": "Last Year",
         })
 
     elif mode == "group_by":
