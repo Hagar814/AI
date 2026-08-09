@@ -7,6 +7,19 @@ import io
 
 DEFAULT_MODEL = "claude-sonnet-5"
 
+
+def _safe_log(title, message):
+    """log_error() itself hitting an error (DB state, title/message limits, etc.)
+    must never turn a recoverable failure into an unhandled exception - this is
+    never allowed to raise. (Same helper as ai/executor.py's _safe_log; this file
+    was calling an undefined name of the same name, which meant every except
+    block below that actually fired raised a NameError instead of logging.)"""
+    try:
+        frappe.log_error(title=title, message=message)
+    except Exception:
+        pass
+
+
 REPORT_TRIGGER_KEYWORDS = ["report", "تقرير", "report builder", "query report", "script report", "dashboard", "لوحة تحكم"]
 
 GENERIC_ERROR_MESSAGE = {

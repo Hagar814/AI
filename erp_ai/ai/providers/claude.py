@@ -6,6 +6,15 @@ from erp_ai.ai.executor import execute_tool
 
 DEFAULT_MODEL = "claude-sonnet-5"
 
+
+def _debug_log(title, message):
+    """Writes to the Error Log doctype (Desk > Error Log) so debug output is
+    visible without terminal/log-file access. Remove once confirmed working."""
+    try:
+        frappe.log_error(title=title[:140], message=message)
+    except Exception:
+        pass
+
 # NOTE: every tool name mentioned below is registered in erp_ai/ai/tools/.
 # The previous version of this prompt referenced get_doctype_schema,
 # create_erp_document, execute_doc_method, and get_system_analytics - none
@@ -38,7 +47,7 @@ Core Operational Rules:
      sales per customer"), and distinct values. Prefer this over fetching raw records and
      computing totals yourself - it is faster and always permission-filtered.
 
-5. Reports, dashboards & charts:
+5. Reports, dashboards, charts & cards:
    - Use create_report to save a Report Builder view of a DocType. This is a filtered list
      view, not a computed/aggregated report - if the user wants a saved report with
      computed columns per group (e.g. "average order value per customer"), that needs a
@@ -46,18 +55,23 @@ Core Operational Rules:
      for safety (it would execute arbitrary code every time anyone opens it). In that case,
      answer with analyze_data instead and tell the user a System Manager can turn it into a
      saved Query Report by hand if needed.
+   - Use create_number_card for a single-number KPI (e.g. "Total Sales Today", "Open
+     Purchase Orders", "Average Order Value") - one DocType, one aggregate (Count / Sum /
+     Average / Minimum / Maximum), optionally filtered. This is what a "dashboard" request
+     usually means when the user describes a metric rather than a trend or a breakdown.
    - Use create_dashboard_chart to build ONE chart: 'time_series' mode for a trend over a
      date field (e.g. monthly revenue), 'group_by' mode for totals broken down by a field
      (e.g. sales by customer). A chart is always one DocType + one aggregate - it cannot
      compute a cross-doctype figure like "Gross Profit" (Sales minus Cost of Goods Sold).
-     For a request with several KPIs, call create_dashboard_chart once per KPI that maps to
-     a single DocType/field/aggregate, tell the user which requested KPIs you could not
-     create as native charts and why, then call create_dashboard once at the end with every
-     chart name to bundle them together.
+   - Neither a card nor a chart can compute a cross-doctype figure. For a request with
+     several KPIs/breakdowns, call create_number_card once per plain metric and
+     create_dashboard_chart once per trend/breakdown, tell the user which requested items
+     you could not create natively and why, then call create_dashboard once at the end with
+     every card_name and chart_name to bundle them together into one Dashboard record.
    - These all persist real records in ERPNext, so confirm the details with the user
-     (title, DocType, fields, and which requested items will/won't become charts) before
-     calling them if there's any ambiguity - simply ask in plain text and wait for their
-     reply in the next message; don't fabricate a confirmation.
+     (title, DocType, fields, and which requested cards/charts will/won't be created as
+     described) before calling them if there's any ambiguity - simply ask in plain text and
+     wait for their reply in the next message; don't fabricate a confirmation.
 
 6. Data location:
    - Line-item/child data (items on an invoice or order, etc.) lives on its own DocType,
@@ -134,6 +148,20 @@ def _build_claude_tools():
         for prop_name, prop_data in fn["parameters"].get("properties", {}).items():
             tool_def["input_schema"]["properties"][prop_name] = _convert_param_schema(prop_data)
         claude_tools.append(tool_def)
+
+    # DEBUG: the definitive check - does create_number_card actually show up
+    # in the tool list sent to the Anthropic API for this request? Writes to
+    # the Error Log doctype (Desk > Error Log). Remove once confirmed working.
+    tool_names = [t["name"] for t in claude_tools]
+    print(f"[ERP_AI_DEBUG] claude.py loaded from: {__file__}")
+    print(f"[ERP_AI_DEBUG] tools sent to Claude ({len(tool_names)}): {tool_names}")
+    _debug_log(
+        "ERP_AI_DEBUG tools sent to Claude",
+        f"file={__file__}\ncount={len(tool_names)}\n"
+        f"create_number_card registered={'create_number_card' in tool_names}\n"
+        f"tools={tool_names}",
+    )
+
     return claude_tools
 
 
@@ -167,28 +195,51 @@ def ask_claude(message: str, conversation: list = None):
 
     response = _call_claude(client, model_name, messages_payload, claude_tools)
 
-    tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
+    tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
     # A multi-chart dashboard (one create_dashboard_chart call per KPI, plus one
-    # create_dashboard call at the end) can legitimately need a dozen+ tool calls.
+    # create_dashboard call at the end) can legitimately need a dozen+ tool calls,
+    # and Claude may issue several tool_use blocks in a single turn (parallel
+    # tool calls) - every one of them MUST get a matching tool_result in the
+    # very next message, or the next API call fails with a 400 error like:
+    # "tool_use ids were found without tool_result blocks immediately after".
     max_tool_iterations = 20
     iteration = 0
 
-    while tool_use_block and iteration < max_tool_iterations:
+    while tool_use_blocks and iteration < max_tool_iterations:
         iteration += 1
-        tool_result = execute_tool(tool_use_block.name, tool_use_block.input or {})
 
         messages_payload.append({"role": "assistant", "content": response.content})
-        messages_payload.append({
-            "role": "user",
-            "content": [{
+
+        tool_result_blocks = []
+        for tool_use_block in tool_use_blocks:
+            # DEBUG: remove once confirmed working.
+            print(f"[ERP_AI_DEBUG] iteration {iteration}: model wants to call "
+                  f"'{tool_use_block.name}' with input={tool_use_block.input!r}")
+            _debug_log(
+                f"ERP_AI_DEBUG iter {iteration} call {tool_use_block.name}",
+                f"input={tool_use_block.input!r}",
+            )
+
+            tool_result = execute_tool(tool_use_block.name, tool_use_block.input or {})
+
+            print(f"[ERP_AI_DEBUG] iteration {iteration}: '{tool_use_block.name}' returned: {tool_result!r}")
+            _debug_log(
+                f"ERP_AI_DEBUG iter {iteration} result {tool_use_block.name}",
+                f"result={tool_result!r}",
+            )
+
+            tool_result_blocks.append({
                 "type": "tool_result",
                 "tool_use_id": tool_use_block.id,
                 "content": json.dumps(tool_result, ensure_ascii=False, default=str),
-            }],
-        })
+            })
+
+        # ALL tool_result blocks for this turn go in ONE user message, in the
+        # same order as the tool_use blocks they answer.
+        messages_payload.append({"role": "user", "content": tool_result_blocks})
 
         response = _call_claude(client, model_name, messages_payload, claude_tools)
-        tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
+        tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
 
     text_block = next((b for b in response.content if b.type == "text"), None)
     if text_block:
