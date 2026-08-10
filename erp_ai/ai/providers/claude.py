@@ -7,14 +7,6 @@ from erp_ai.ai.executor import execute_tool
 DEFAULT_MODEL = "claude-sonnet-5"
 
 
-def _debug_log(title, message):
-    """Writes to the Error Log doctype (Desk > Error Log) so debug output is
-    visible without terminal/log-file access. Remove once confirmed working."""
-    try:
-        frappe.log_error(title=title[:140], message=message)
-    except Exception:
-        pass
-
 # NOTE: every tool name mentioned below is registered in erp_ai/ai/tools/.
 # The previous version of this prompt referenced get_doctype_schema,
 # create_erp_document, execute_doc_method, and get_system_analytics - none
@@ -149,19 +141,6 @@ def _build_claude_tools():
             tool_def["input_schema"]["properties"][prop_name] = _convert_param_schema(prop_data)
         claude_tools.append(tool_def)
 
-    # DEBUG: the definitive check - does create_number_card actually show up
-    # in the tool list sent to the Anthropic API for this request? Writes to
-    # the Error Log doctype (Desk > Error Log). Remove once confirmed working.
-    tool_names = [t["name"] for t in claude_tools]
-    print(f"[ERP_AI_DEBUG] claude.py loaded from: {__file__}")
-    print(f"[ERP_AI_DEBUG] tools sent to Claude ({len(tool_names)}): {tool_names}")
-    _debug_log(
-        "ERP_AI_DEBUG tools sent to Claude",
-        f"file={__file__}\ncount={len(tool_names)}\n"
-        f"create_number_card registered={'create_number_card' in tool_names}\n"
-        f"tools={tool_names}",
-    )
-
     return claude_tools
 
 
@@ -212,21 +191,7 @@ def ask_claude(message: str, conversation: list = None):
 
         tool_result_blocks = []
         for tool_use_block in tool_use_blocks:
-            # DEBUG: remove once confirmed working.
-            print(f"[ERP_AI_DEBUG] iteration {iteration}: model wants to call "
-                  f"'{tool_use_block.name}' with input={tool_use_block.input!r}")
-            _debug_log(
-                f"ERP_AI_DEBUG iter {iteration} call {tool_use_block.name}",
-                f"input={tool_use_block.input!r}",
-            )
-
             tool_result = execute_tool(tool_use_block.name, tool_use_block.input or {})
-
-            print(f"[ERP_AI_DEBUG] iteration {iteration}: '{tool_use_block.name}' returned: {tool_result!r}")
-            _debug_log(
-                f"ERP_AI_DEBUG iter {iteration} result {tool_use_block.name}",
-                f"result={tool_result!r}",
-            )
 
             tool_result_blocks.append({
                 "type": "tool_result",

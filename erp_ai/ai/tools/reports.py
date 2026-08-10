@@ -7,20 +7,7 @@ from erp_ai.ai.tools._security import (
     check_permission,
 )
 
-# DEBUG: proves this exact file is the one Python actually imported (not a
-# cached .pyc or an old copy elsewhere on the path). Runs once per worker
-# process, at import time, before any tool below is defined/registered.
-# Writes to the Error Log doctype (Desk > Error Log) so it's visible without
-# needing terminal/log-file access. Remove once confirmed working.
-def _debug_log(title, message):
-    try:
-        frappe.log_error(title=title[:140], message=message)
-    except Exception:
-        pass
 
-
-print("[ERP_AI_DEBUG] reports.py module loaded from:", __file__)
-_debug_log("ERP_AI_DEBUG reports.py loaded", f"Module loaded from: {__file__}")
 
 # Real Dashboard Chart schema (verified against frappe/frappe's
 # dashboard_chart.py controller - the original repo's system prompt had the
@@ -128,8 +115,16 @@ def create_dashboard_chart(chart_name, doctype, mode, aggregate="Count", value_f
     if not frappe.has_permission("Dashboard Chart", "create"):
         frappe.throw("You do not have permission to create dashboard charts.")
 
+    # Idempotent instead of a hard failure: if the model retries the same
+    # request (e.g. after a transient error, or the user re-confirming),
+    # reuse the existing chart rather than derailing the whole multi-step
+    # dashboard build with an error the model has to recover from.
     if frappe.db.exists("Dashboard Chart", chart_name):
-        frappe.throw(f"A chart named '{chart_name}' already exists.")
+        return {
+            "status": "exists",
+            "chart_name": chart_name,
+            "message": f"Dashboard Chart '{chart_name}' already exists - reusing it as-is.",
+        }
 
     mode = (mode or "").lower().strip()
     aggregate = aggregate if aggregate in ALLOWED_AGGREGATES else "Count"
@@ -226,23 +221,17 @@ def _filters_dict_to_json(doctype, filters):
 def create_number_card(card_name, doctype, function="Count", value_field=None, filters=None,
                         show_percentage_stats=False, stats_time_interval="Monthly",
                         module=None, **kwargs):
-    # DEBUG: confirms the AI actually called this tool, and with what args.
-    # Remove once confirmed working.
-    print(f"[ERP_AI_DEBUG] create_number_card called: card_name={card_name!r} "
-          f"doctype={doctype!r} function={function!r} value_field={value_field!r} filters={filters!r}")
-    _debug_log(
-        "ERP_AI_DEBUG create_number_card called",
-        f"card_name={card_name!r}\ndoctype={doctype!r}\nfunction={function!r}\n"
-        f"value_field={value_field!r}\nfilters={filters!r}",
-    )
-
     validate_doctype(doctype)
     check_permission(doctype, "read")
     if not frappe.has_permission("Number Card", "create"):
         frappe.throw("You do not have permission to create number cards.")
 
     if frappe.db.exists("Number Card", card_name):
-        frappe.throw(f"A number card named '{card_name}' already exists.")
+        return {
+            "status": "exists",
+            "card_name": card_name,
+            "message": f"Number Card '{card_name}' already exists - reusing it as-is.",
+        }
 
     function = function if function in ALLOWED_CARD_FUNCTIONS else "Count"
     if function != "Count":
@@ -269,9 +258,6 @@ def create_number_card(card_name, doctype, function="Count", value_field=None, f
     doc = frappe.get_doc({k: v for k, v in card_doc.items() if v is not None})
     doc.insert()
 
-    print(f"[ERP_AI_DEBUG] create_number_card SAVED as: {doc.name}")
-    _debug_log("ERP_AI_DEBUG create_number_card saved", f"card_name={doc.name!r}")
-
     return {"status": "success", "card_name": doc.name}
 
 
@@ -281,7 +267,8 @@ def create_number_card(card_name, doctype, function="Count", value_field=None, f
         "Create a Dashboard and attach one or more existing Dashboard Charts and/or "
         "Number Cards to it. Use create_dashboard_chart / create_number_card first for "
         "any chart or card that doesn't exist yet. At least one of chart_names or "
-        "card_names must be given."
+        "card_names must be given. If a Dashboard with this name already exists, the "
+        "given charts/cards are merged into it (no duplicates) instead of failing."
     ),
     parameters={
         "dashboard_name": {"type": "string", "required": True},
@@ -291,30 +278,18 @@ def create_number_card(card_name, doctype, function="Count", value_field=None, f
     },
 )
 def create_dashboard(dashboard_name, chart_names=None, card_names=None, module=None, **kwargs):
-    # DEBUG: remove once confirmed working.
-    print(f"[ERP_AI_DEBUG] create_dashboard called: dashboard_name={dashboard_name!r} "
-          f"chart_names={chart_names!r} card_names={card_names!r}")
-    _debug_log(
-        "ERP_AI_DEBUG create_dashboard called",
-        f"dashboard_name={dashboard_name!r}\nchart_names={chart_names!r}\ncard_names={card_names!r}",
-    )
-
-    if not frappe.has_permission("Dashboard", "create"):
-        frappe.throw("You do not have permission to create dashboards.")
-
-    if frappe.db.exists("Dashboard", dashboard_name):
-        frappe.throw(f"A dashboard named '{dashboard_name}' already exists.")
-
     if not (chart_names or card_names):
         frappe.throw("Provide at least one of `chart_names` or `card_names`.")
 
+    # Validate every referenced chart/card BEFORE touching the Dashboard record,
+    # so a bad name never leaves a half-built/empty Dashboard behind.
     charts = []
     for chart_name in (chart_names or []):
         if not frappe.db.exists("Dashboard Chart", chart_name):
             frappe.throw(f"Dashboard Chart '{chart_name}' does not exist. Create it first with create_dashboard_chart.")
         if not frappe.has_permission("Dashboard Chart", "read", doc=chart_name):
             frappe.throw(f"You do not have permission to read chart '{chart_name}'.")
-        charts.append({"chart": chart_name})
+        charts.append(chart_name)
 
     cards = []
     for card_name in (card_names or []):
@@ -322,23 +297,53 @@ def create_dashboard(dashboard_name, chart_names=None, card_names=None, module=N
             frappe.throw(f"Number Card '{card_name}' does not exist. Create it first with create_number_card.")
         if not frappe.has_permission("Number Card", "read", doc=card_name):
             frappe.throw(f"You do not have permission to read card '{card_name}'.")
-        cards.append({"card": card_name})
+        cards.append(card_name)
+
+    if frappe.db.exists("Dashboard", dashboard_name):
+        # Idempotent instead of a hard failure: if a Dashboard with this name
+        # already exists (e.g. the model retried after an earlier error, or
+        # the user is extending a dashboard from a previous request), attach
+        # any charts/cards that aren't on it yet rather than failing outright.
+        if not frappe.has_permission("Dashboard", "write", doc=dashboard_name):
+            frappe.throw(f"You do not have permission to modify dashboard '{dashboard_name}'.")
+
+        doc = frappe.get_doc("Dashboard", dashboard_name)
+        existing_charts = {row.chart for row in doc.charts}
+        existing_cards = {row.card for row in doc.cards}
+
+        added_charts = [c for c in charts if c not in existing_charts]
+        added_cards = [c for c in cards if c not in existing_cards]
+
+        for chart_name in added_charts:
+            doc.append("charts", {"chart": chart_name})
+        for card_name in added_cards:
+            doc.append("cards", {"card": card_name})
+
+        if added_charts or added_cards:
+            doc.save()
+
+        return {
+            "status": "exists",
+            "dashboard_name": doc.name,
+            "added_charts": added_charts,
+            "added_cards": added_cards,
+            "message": (
+                f"Dashboard '{doc.name}' already existed - added "
+                f"{len(added_charts)} new chart(s) and {len(added_cards)} new card(s) to it."
+            ),
+        }
+
+    if not frappe.has_permission("Dashboard", "create"):
+        frappe.throw("You do not have permission to create dashboards.")
 
     doc = frappe.get_doc({
         "doctype": "Dashboard",
         "dashboard_name": dashboard_name,
         "module": module or "Core",
         "is_default": 0,
-        "charts": charts,
-        "cards": cards,
+        "charts": [{"chart": c} for c in charts],
+        "cards": [{"card": c} for c in cards],
     })
     doc.insert()
-
-    print(f"[ERP_AI_DEBUG] create_dashboard SAVED as: {doc.name} "
-          f"(charts={len(charts)}, cards={len(cards)})")
-    _debug_log(
-        "ERP_AI_DEBUG create_dashboard saved",
-        f"dashboard_name={doc.name!r}\ncharts={len(charts)}\ncards={len(cards)}",
-    )
 
     return {"status": "success", "dashboard_name": doc.name}

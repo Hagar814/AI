@@ -167,11 +167,25 @@
 #erp-ai-header:active { cursor: grabbing; }
 
 /* منع صورة السحب الشبحية (ghost) اللي بيعرضها المتصفح افتراضيًا
-   لما تسحب أي عنصر HTML عادي بدل ما تعتمد على منطق JS للسحب */
-#erp-ai-header,
-#erp-ai-header * {
+   لما تسحب أي عنصر HTML عادي بدل ما تعتمد على منطق JS للسحب.
+   لازم يشمل الشات كله (#erp-ai-window) مش الهيدر بس - لو نقطة
+   الضغط مش جوه الهيدر بالظبط (زي حافة النافذة أو جنب resize handle)،
+   المتصفح ممكن يعتبر العنصر اللي فيه الاختيار هو النافذة كلها. */
+#erp-ai-window,
+#erp-ai-window * {
     -webkit-user-drag: none;
     -moz-user-drag: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* استثناء صريح: مربع الكتابة لازم يفضل قابل للتحديد/النسخ عشان المستخدم
+   يقدر يعدّل أو ينسخ كلامه بشكل طبيعي. */
+#erp-ai-input,
+.erp-ai-message,
+.erp-ai-message * {
+    user-select: text;
+    -webkit-user-select: text;
 }
 
 #erp-ai-title {

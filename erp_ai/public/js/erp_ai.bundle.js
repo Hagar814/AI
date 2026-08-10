@@ -1,17 +1,11 @@
 class ERPAI {
     constructor() {
         if (window.__erpAiInstance) {
-            console.warn(
-                "ERP AI: an instance is already running on this page — skipping " +
-                "duplicate initialization. If you keep seeing this, check for " +
-                "erp_ai.js being registered/loaded from more than one place " +
-                "(hooks.py, a Client Script, or a stale cached bundle)."
-            );
+            console.warn("ERP AI: an instance is already running on this page.");
             return window.__erpAiInstance;
         }
         window.__erpAiInstance = this;
 
-        // تنظيف مسبق لأي بقايا مكررة
         this.cleanupDuplicates();
 
         this.messages = [];
@@ -28,18 +22,18 @@ class ERPAI {
         this.resizeStartY = 0;
         this.resizeStartWidth = 0;
         this.resizeStartHeight = 0;
-        this.minWidth = 320;
-        this.minHeight = 420;
-
-        this.isCreatingWindow = false;
+        this.minWidth = 400;
+        this.minHeight = 520;
+        this.isDarkMode = localStorage.getItem("erp_ai_dark_mode") === "true";
 
         this.injectStyles();
         this.createButton();
         this.createWindow();
+        this.applyTheme();
     }
 
     cleanupDuplicates() {
-        document.querySelectorAll("#erp-ai-window, #erp-ai-button").forEach(el => el.remove());
+        document.querySelectorAll("#erp-ai-window, #erp-ai-button, #erp-ai-styles").forEach(el => el.remove());
     }
 
     injectStyles() {
@@ -50,283 +44,555 @@ class ERPAI {
         style.textContent = `
             :root {
                 --erp-ink: #0F172A;
-                --erp-slate: #475569;
-                --erp-slate-soft: #94A3B8;
+                --erp-slate: #64748B;
                 --erp-border: #E2E8F0;
                 --erp-surface: #FFFFFF;
                 --erp-surface-soft: #F8FAFC;
                 --erp-accent: #2563EB;
-                --erp-accent-dark: #1D4ED8;
+                --erp-accent-hover: #1D4ED8;
                 --erp-accent-soft: #EFF6FF;
-                --erp-signature: #F59E0B;
+                --erp-danger: #EF4444;
                 --erp-online: #22C55E;
-                --erp-ease: cubic-bezier(0.22, 1, 0.36, 1);
+                --erp-ease: cubic-bezier(0.16, 1, 0.3, 1);
+                --erp-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.03);
+            }
+
+            .erp-dark-theme {
+                --erp-ink: #F8FAFC;
+                --erp-slate: #94A3B8;
+                --erp-border: #334155;
+                --erp-surface: #1E293B;
+                --erp-surface-soft: #0F172A;
+                --erp-accent: #3B82F6;
+                --erp-accent-hover: #60A5FA;
+                --erp-accent-soft: rgba(59, 130, 246, 0.15);
+                --erp-danger: #F87171;
+                --erp-online: #4ADE80;
+                --erp-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
             }
 
             #erp-ai-button {
                 position: fixed;
                 right: 24px;
                 bottom: 24px;
-                width: 56px;
-                height: 56px;
-                border-radius: 50%;
-                background: var(--erp-surface);
+                width: 58px;
+                height: 58px;
+                border-radius: 18px;
+                background: linear-gradient(135deg, var(--erp-accent) 0%, #1d4ed8 100%);
                 cursor: pointer;
                 z-index: 9998;
-                box-shadow: 0 8px 24px rgba(37, 99, 235, 0.28), 0 2px 6px rgba(15, 23, 42, 0.12);
-                transition: transform 220ms var(--erp-ease), box-shadow 220ms var(--erp-ease);
+                box-shadow: 0 12px 24px -6px rgba(37, 99, 235, 0.4);
+                transition: transform 250ms var(--erp-ease), box-shadow 250ms var(--erp-ease);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid rgba(255,255,255,0.2);
             }
-            #erp-ai-button:hover {
-                transform: translateY(-2px) scale(1.04);
-                box-shadow: 0 12px 28px rgba(37, 99, 235, 0.36), 0 3px 8px rgba(15, 23, 42, 0.14);
-            }
-            #erp-ai-button:active { transform: translateY(0) scale(0.98); }
+            #erp-ai-button:hover { transform: translateY(-4px) scale(1.04); box-shadow: 0 16px 30px -6px rgba(37, 99, 235, 0.5); }
 
             #erp-ai-window {
                 position: fixed;
                 right: 24px;
-                bottom: 90px;
-                width: 380px;
-                height: 600px;
-                border-radius: 18px;
+                bottom: 96px;
+                width: 420px;
+                height: 620px;
+                border-radius: 24px;
                 background: var(--erp-surface);
-                box-shadow: 0 20px 48px rgba(15, 23, 42, 0.18), 0 4px 16px rgba(15, 23, 42, 0.08);
+                box-shadow: var(--erp-shadow);
                 border: 1px solid var(--erp-border);
-                animation: erp-ai-window-in 260ms var(--erp-ease);
                 z-index: 9999;
                 overflow: hidden;
                 display: flex;
                 flex-direction: column;
-            }
-            @keyframes erp-ai-window-in {
-                from { opacity: 0; transform: translateY(10px) scale(0.98); }
-                to   { opacity: 1; transform: translateY(0) scale(1); }
+                font-family: inherit;
+                backdrop-filter: blur(12px);
+                transition: background 200ms, border-color 200ms;
             }
 
-            #erp-ai-resize-handle:hover { opacity: 1 !important; }
+            #erp-ai-header {
+                padding: 16px 20px;
+                background: var(--erp-surface);
+                border-bottom: 1px solid var(--erp-border);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                cursor: grab;
+                user-select: none;
+            }
+            #erp-ai-header:active { cursor: grabbing; }
 
-            .erp-ai-row {
-                animation: erp-ai-msg-in 320ms var(--erp-ease) both;
+            .erp-ai-icon-btn {
+                border: 1px solid var(--erp-border);
+                background: var(--erp-surface-soft);
+                border-radius: 10px;
+                width: 34px;
+                height: 34px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--erp-slate);
+                transition: all 200ms var(--erp-ease);
             }
-            @keyframes erp-ai-msg-in {
-                from { opacity: 0; transform: translateY(6px); }
-                to   { opacity: 1; transform: translateY(0); }
+            .erp-ai-icon-btn:hover {
+                background: var(--erp-accent-soft);
+                color: var(--erp-accent);
+                border-color: var(--erp-accent);
+                transform: translateY(-1px);
             }
+
+            .erp-ai-main-layout {
+                display: flex;
+                flex: 1;
+                overflow: hidden;
+                position: relative;
+                width: 100%;
+            }
+
+            #erp-ai-sidebar {
+                width: 0px;
+                background: var(--erp-surface);
+                border-right: 0px solid var(--erp-border);
+                display: flex;
+                flex-direction: column;
+                position: absolute;
+                left: 0;
+                top: 0;
+                bottom: 0;
+                z-index: 40;
+                overflow: hidden;
+                visibility: hidden;
+                pointer-events: none;
+                transition: width 300ms var(--erp-ease), border-right-width 300ms var(--erp-ease), visibility 300ms;
+            }
+
+            #erp-ai-sidebar.open {
+                width: 270px;
+                border-right: 1px solid var(--erp-border);
+                visibility: visible;
+                pointer-events: auto;
+                box-shadow: 10px 0 30px rgba(0,0,0,0.12);
+            }
+
+            .erp-ai-sidebar-header {
+                padding: 14px;
+                border-bottom: 1px solid var(--erp-border);
+                min-width: 270px;
+            }
+            
+            .erp-ai-new-chat-btn {
+                width: 100%;
+                background: var(--erp-accent);
+                color: #fff;
+                border: none;
+                border-radius: 10px;
+                padding: 9px 12px;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 200ms;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+            }
+            .erp-ai-new-chat-btn:hover { background: var(--erp-accent-hover); transform: translateY(-1px); }
+
+            .erp-ai-sidebar-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 10px;
+                min-width: 270px;
+            }
+
+            .erp-ai-conv-item {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 10px 12px;
+                font-size: 13px;
+                color: var(--erp-slate);
+                border-radius: 10px;
+                cursor: pointer;
+                margin-bottom: 4px;
+                transition: all 150ms;
+            }
+            .erp-ai-conv-item:hover { background: var(--erp-surface-soft); color: var(--erp-ink); }
+            .erp-ai-conv-item.active { background: var(--erp-accent-soft); color: var(--erp-accent); font-weight: 600; }
+            
+            .erp-ai-conv-title {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                flex: 1;
+            }
+
+            .erp-ai-delete-conv {
+                background: none;
+                border: none;
+                color: var(--erp-slate);
+                cursor: pointer;
+                font-size: 13px;
+                padding: 2px 6px;
+                border-radius: 6px;
+                opacity: 0;
+                transition: opacity 150ms, color 150ms;
+            }
+            .erp-ai-conv-item:hover .erp-ai-delete-conv { opacity: 1; }
+            .erp-ai-delete-conv:hover { color: var(--erp-danger); background: rgba(239, 68, 68, 0.1); }
+
+            #erp-ai-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 20px;
+                background: var(--erp-surface-soft);
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+                user-select: text;
+                width: 100%;
+                box-sizing: border-box;
+                scroll-behavior: smooth;
+            }
+
+            .erp-ai-suggestions {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                margin-top: 16px;
+                width: 100%;
+            }
+            .erp-ai-suggestion-chip {
+                background: var(--erp-surface);
+                border: 1px solid var(--erp-border);
+                padding: 10px 14px;
+                border-radius: 12px;
+                font-size: 12px;
+                color: var(--erp-ink);
+                cursor: pointer;
+                text-align: right;
+                transition: all 200ms;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.01);
+            }
+            .erp-ai-suggestion-chip:hover {
+                border-color: var(--erp-accent);
+                background: var(--erp-accent-soft);
+                color: var(--erp-accent);
+                transform: translateY(-1px);
+            }
+
+            #erp-ai-footer {
+                padding: 14px 18px;
+                background: var(--erp-surface);
+                border-top: 1px solid var(--erp-border);
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .erp-ai-file-chip {
+                display: none;
+                align-items: center;
+                justify-content: space-between;
+                font-size: 12px;
+                color: var(--erp-accent);
+                padding: 6px 12px;
+                background: var(--erp-accent-soft);
+                border-radius: 10px;
+                border: 1px solid var(--erp-accent);
+                animation: erp-fadeIn 200ms ease;
+            }
+            @keyframes erp-fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+            .erp-ai-input-wrapper {
+                display: flex;
+                align-items: flex-end;
+                gap: 10px;
+                background: var(--erp-surface-soft);
+                border: 1px solid var(--erp-border);
+                border-radius: 16px;
+                padding: 8px 12px;
+                transition: all 200ms;
+            }
+            .erp-ai-input-wrapper:focus-within {
+                border-color: var(--erp-accent);
+                box-shadow: 0 0 0 3px var(--erp-accent-soft);
+            }
+
+            #erp-ai-input {
+                flex: 1;
+                border: none;
+                background: transparent;
+                resize: none;
+                outline: none;
+                max-height: 120px;
+                font-size: 13px;
+                color: var(--erp-ink);
+                line-height: 1.5;
+                font-family: inherit;
+            }
+
+            .erp-ai-row { display: flex; gap: 12px; align-items: flex-start; width: 100%; position: relative; }
+            .erp-ai-row.user { flex-direction: row-reverse; }
+
+            .erp-ai-avatar {
+                border-radius: 12px;
+                background: var(--erp-accent-soft);
+                width: 34px;
+                height: 34px;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 13px;
+                font-weight: 700;
+                color: var(--erp-accent);
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+
+            .erp-ai-message-container {
+                max-width: 75%;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .erp-ai-row.user .erp-ai-message-container { align-items: flex-end; }
+            .erp-ai-row.assistant .erp-ai-message-container { align-items: flex-start; }
 
             .erp-ai-message {
-                transition: box-shadow 160ms var(--erp-ease);
+                padding: 12px 16px;
+                font-size: 13px;
+                line-height: 1.5;
+                word-break: break-word;
+                overflow-wrap: break-word;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            }
+            .erp-ai-message.user {
+                background: var(--erp-accent-soft);
+                color: var(--erp-ink);
+                border: 1px solid var(--erp-border);
+                border-radius: 16px 16px 4px 16px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+                text-align: right;
+            }
+            .erp-ai-message.assistant {
+                background: var(--erp-surface);
+                color: var(--erp-ink);
+                border: 1px solid var(--erp-border);
+                border-radius: 16px 16px 18px 4px;
             }
 
-            .erp-ai-avatar.erp-ai-thinking {
-                position: relative;
+            /* Custom Typewriter Cursor Effect */
+            .erp-typing-cursor::after {
+                content: '';
+                display: inline-block;
+                width: 6px;
+                height: 13px;
+                background: var(--erp-accent);
+                margin-right: 4px;
+                animation: erp-blink 0.8s infinite;
+                vertical-align: middle;
             }
-            .erp-ai-avatar.erp-ai-thinking::after {
-                content: "";
-                position: absolute;
-                inset: -4px;
-                border-radius: 50%;
-                border: 2px solid var(--erp-signature);
-                opacity: 0.55;
-                animation: erp-ai-glow-pulse 1.4s var(--erp-ease) infinite;
+            @keyframes erp-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+            .erp-ai-msg-actions {
+                display: flex;
+                gap: 6px;
+                opacity: 0;
+                transition: opacity 150ms;
+                font-size: 11px;
+                padding: 0 4px;
             }
-            @keyframes erp-ai-glow-pulse {
-                0%   { transform: scale(0.85); opacity: 0.55; }
-                70%  { transform: scale(1.25); opacity: 0; }
-                100% { transform: scale(1.25); opacity: 0; }
+            .erp-ai-row:hover .erp-ai-msg-actions { opacity: 1; }
+            .erp-ai-action-btn {
+                background: var(--erp-surface);
+                border: 1px solid var(--erp-border);
+                color: var(--erp-slate);
+                border-radius: 6px;
+                padding: 2px 6px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                transition: all 150ms;
             }
+            .erp-ai-action-btn:hover { background: var(--erp-accent-soft); color: var(--erp-accent); border-color: var(--erp-accent); }
 
             .erp-ai-loading-dots {
                 display: inline-flex;
                 align-items: center;
                 gap: 4px;
-                padding: 2px 0;
+                padding: 0;
             }
             .erp-ai-loading-dots span {
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
-                background: var(--erp-accent);
-                display: inline-block;
+                width: 5px; 
+                height: 5px; 
+                border-radius: 50%; 
+                background: var(--erp-slate);
                 animation: erp-ai-dot-beat 1.1s ease-in-out infinite;
+                opacity: 0.4;
             }
-            .erp-ai-loading-dots span:nth-child(1) { animation-delay: 0ms; }
-            .erp-ai-loading-dots span:nth-child(2) { animation-delay: 140ms; }
-            .erp-ai-loading-dots span:nth-child(3) { animation-delay: 280ms; }
+            .erp-ai-loading-dots span:nth-child(2) { animation-delay: 160ms; }
+            .erp-ai-loading-dots span:nth-child(3) { animation-delay: 320ms; }
             @keyframes erp-ai-dot-beat {
-                0%, 60%, 100% { transform: translateY(0) scale(1); opacity: 0.5; }
-                30% { transform: translateY(-4px) scale(1.15); opacity: 1; }
+                0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
+                30% { transform: translateY(-3px); opacity: 1; }
             }
 
-            .erp-ai-message table tbody tr {
-                animation: erp-ai-row-in 260ms var(--erp-ease) both;
+            #erp-ai-resize-handle {
+                position: absolute;
+                right: 0;
+                bottom: 0;
+                width: 18px;
+                height: 18px;
+                cursor: nwse-resize;
+                z-index: 100;
+                background: linear-gradient(135deg, transparent 50%, var(--erp-slate) 50%);
+                opacity: 0.4;
+                border-bottom-right-radius: 24px;
+                transition: opacity 200ms;
             }
-            @keyframes erp-ai-row-in {
-                from { opacity: 0; transform: translateY(4px); }
-                to   { opacity: 1; transform: translateY(0); }
-            }
-            .erp-ai-message table {
-                font-variant-numeric: tabular-nums;
-            }
-            .erp-ai-message td, .erp-ai-message th {
-                font-variant-numeric: tabular-nums;
-            }
-
-            .export-csv-btn {
-                transition: background 160ms var(--erp-ease), transform 120ms var(--erp-ease), border-color 160ms var(--erp-ease);
-            }
-            .export-csv-btn:hover { background: var(--erp-accent-soft) !important; border-color: var(--erp-accent) !important; }
-            .export-csv-btn:active { transform: scale(0.98); }
-
-            #erp-ai-input:focus {
-                outline: none;
-                box-shadow: 0 0 0 3px var(--erp-accent-soft);
-                border-color: var(--erp-accent) !important;
-            }
-
-            #erp-ai-send {
-                transition: transform 140ms var(--erp-ease), box-shadow 140ms var(--erp-ease);
-            }
-            #erp-ai-send:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3); }
-            #erp-ai-send:active { transform: translateY(0) scale(0.94); }
-
-            .erp-ai-avatar {
-                border-radius: 50%;
-                background: var(--erp-accent-soft);
-                width: 28px;
-                height: 28px;
-                flex-shrink: 0;
-            }
-            .erp-ai-message.assistant {
-                background: var(--erp-surface-soft);
-                border: 1px solid var(--erp-border);
-                border-radius: 14px 14px 14px 4px;
-                color: var(--erp-ink);
-            }
-            .erp-ai-message.user {
-                background: var(--erp-ink);
-                border-radius: 14px 14px 4px 14px;
-                color: #fff;
-            }
-
-            @media (prefers-reduced-motion: reduce) {
-                #erp-ai-window, .erp-ai-row, .erp-ai-message table tbody tr,
-                .erp-ai-avatar.erp-ai-thinking::after, .erp-ai-loading-dots span {
-                    animation: none !important;
-                    transition: none !important;
-                }
-            }
+            #erp-ai-resize-handle:hover { opacity: 0.8; }
         `;
         document.head.appendChild(style);
     }
 
-    async loadTemplate() {
-        const response = await fetch("/assets/erp_ai/chat.html");
-        if (!response.ok) throw new Error("Failed to load ERP AI template.");
-        return await response.text();
-    }
-
     createButton() {
-        if (document.getElementById("erp-ai-button")) return;
         const button = document.createElement("div");
         button.id = "erp-ai-button";
         button.innerHTML = `
-            <div class="button-logo-inside" style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; font-weight: bold; font-family: inherit;">
-                <span style="color: #2563eb; font-size: 15px;">E</span><span style="color: #0f172a; font-size: 15px;">AI</span>
-            </div>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                <line x1="9" y1="9" x2="15" y2="9"></line>
+                <line x1="9" y1="13" x2="13" y2="13"></line>
+            </svg>
         `;
         document.body.appendChild(button);
         button.addEventListener("click", () => this.toggleWindow());
     }
 
-    async createWindow() {
-        if (document.getElementById("erp-ai-window") || this.isCreatingWindow) return;
-        this.isCreatingWindow = true;
+    createWindow() {
+        if (document.getElementById("erp-ai-window")) return;
 
-        try {
-            const html = await this.loadTemplate();
+        const windowElement = document.createElement("div");
+        windowElement.id = "erp-ai-window";
+        windowElement.style.display = "none";
 
-            // فحص ثانٍ في حال تم إنشاء العنصر أثناء عملية الجلب الـ async
-            if (document.getElementById("erp-ai-window")) {
-                this.isCreatingWindow = false;
-                return;
-            }
+        windowElement.innerHTML = `
+            <div id="erp-ai-header">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button id="erp-ai-toggle-sidebar" class="erp-ai-icon-btn" title="Toggle History">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+                    </button>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 8px; height: 8px; background: var(--erp-online); border-radius: 50%; box-shadow: 0 0 8px var(--erp-online);"></div>
+                        <span style="font-weight: 700; font-size: 14px; color: var(--erp-ink); letter-spacing: -0.2px;">ERP Assistant</span>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <button id="erp-ai-theme-toggle" class="erp-ai-icon-btn" title="Toggle Dark/Light Mode">
+                        ${this.isDarkMode ? '☀️' : '🌙'}
+                    </button>
+                    <button id="erp-ai-minimize" class="erp-ai-icon-btn" title="Minimize" style="font-size:16px;">&#8211;</button>
+                    <button id="erp-ai-close" class="erp-ai-icon-btn" title="Close" style="font-size:18px;">&times;</button>
+                </div>
+            </div>
 
-            const windowElement = document.createElement("div");
-            windowElement.id = "erp-ai-window";
-            windowElement.style.display = "none";
-            windowElement.innerHTML = html;
+            <div class="erp-ai-main-layout">
+                <div id="erp-ai-sidebar">
+                    <div class="erp-ai-sidebar-header">
+                        <button id="erp-ai-new-chat" class="erp-ai-new-chat-btn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            New Chat
+                        </button>
+                    </div>
+                    <div id="erp-ai-conversations-list" class="erp-ai-sidebar-body">
+                        <div style="font-size: 12px; color: var(--erp-slate); text-align:center; padding-top:25px;">No conversations</div>
+                    </div>
+                </div>
 
-            document.body.appendChild(windowElement);
+                <div id="erp-ai-body">
+                    <div id="erp-ai-welcome" style="text-align: center; margin-top: 40px; color: var(--erp-slate);">
+                        <div style="font-size: 32px; margin-bottom: 8px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.1));">✨</div>
+                        <div style="font-weight: 700; font-size: 16px; color: var(--erp-ink); letter-spacing: -0.3px;">How can I help you today?</div>
+                        <div style="font-size: 12px; margin-top: 6px; max-width: 260px; margin-left: auto; margin-right: auto; line-height: 1.4;">Ask questions about records, generate reports, or execute tasks.</div>
+                        
+                        <div class="erp-ai-suggestions">
+                            <div class="erp-ai-suggestion-chip" data-prompt="اعرض لي تقرير المبيعات اليومية">📊 اعرض لي تقرير المبيعات اليومية</div>
+                            <div class="erp-ai-suggestion-chip" data-prompt="ما هي الفواتير المتأخرة غير المسددة؟">🧾 ما هي الفواتير المتأخرة غير المسددة؟</div>
+                            <div class="erp-ai-suggestion-chip" data-prompt="أنشئ لي طلب تسعير (Quotation) جديد">📝 أنشئ لي طلب تسعير جديد</div>
+                        </div>
+                    </div>
+                    <div id="erp-ai-messages" style="display:flex; flex-direction:column; gap:16px;"></div>
+                </div>
+            </div>
 
-            this.setupResizableWindow();
-            this.bindEvents();
-        } catch (e) {
-            console.error("ERP AI: UI initialization error:", e);
-        } finally {
-            this.isCreatingWindow = false;
+            <div id="erp-ai-footer">
+                <div id="erp-ai-file-preview" class="erp-ai-file-chip">
+                    <span id="erp-ai-file-name-text">📎 attached_file.txt</span>
+                    <button id="erp-ai-remove-file" style="border:none; background:none; cursor:pointer; font-weight:bold; color:var(--erp-accent); font-size:14px;">&times;</button>
+                </div>
+                <div class="erp-ai-input-wrapper">
+                    <input type="file" id="erp-ai-file-input" style="display:none;">
+                    <button id="erp-ai-attach-btn" class="erp-ai-icon-btn" style="border:none; background:transparent; width:30px; height:30px;" title="Attach file">📎</button>
+                    <textarea id="erp-ai-input" rows="1" placeholder="Type a message..."></textarea>
+                    <button id="erp-ai-send" style="border:none; background:var(--erp-accent); color:#fff; width:34px; height:34px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition: all 200ms; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);" title="Send">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </div>
+            </div>
+            <div id="erp-ai-resize-handle"></div>
+        `;
+
+        document.body.appendChild(windowElement);
+
+        this.setupResizableWindow();
+        this.bindEvents();
+    }
+
+    applyTheme() {
+        const win = document.getElementById("erp-ai-window");
+        const themeBtn = document.getElementById("erp-ai-theme-toggle");
+        if (!win) return;
+
+        if (this.isDarkMode) {
+            win.classList.add("erp-dark-theme");
+            if (themeBtn) themeBtn.innerHTML = '☀️';
+        } else {
+            win.classList.remove("erp-dark-theme");
+            if (themeBtn) themeBtn.innerHTML = '🌙';
         }
+        localStorage.setItem("erp_ai_dark_mode", this.isDarkMode);
     }
 
     setupResizableWindow() {
         const windowEl = document.getElementById("erp-ai-window");
-        if (!windowEl) return;
+        const handle = document.getElementById("erp-ai-resize-handle");
+        if (!windowEl || !handle) return;
 
         windowEl.style.minWidth = this.minWidth + "px";
         windowEl.style.minHeight = this.minHeight + "px";
-        windowEl.style.maxWidth = "95vw";
-        windowEl.style.maxHeight = "90vh";
 
-        if (!document.getElementById("erp-ai-resize-handle")) {
-            const handle = document.createElement("div");
-            handle.id = "erp-ai-resize-handle";
-            handle.title = "Drag to resize";
-            handle.style.cssText = `
-                position: absolute;
-                right: 0px;
-                bottom: 0px;
-                width: 22px;
-                height: 22px;
-                cursor: nwse-resize;
-                z-index: 100;
-                background:
-                    linear-gradient(135deg, transparent 0 50%, #94a3b8 50% 60%, transparent 60% 100%),
-                    linear-gradient(135deg, transparent 0 70%, #94a3b8 70% 80%, transparent 80% 100%);
-                opacity: 0.85;
-                border-bottom-right-radius: 18px;
-            `;
-            windowEl.appendChild(handle);
-
-            handle.addEventListener("mousedown", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-
-                this.resizing = true;
-                const r = windowEl.getBoundingClientRect();
-                this.resizeStartX = e.clientX;
-                this.resizeStartY = e.clientY;
-                this.resizeStartWidth = r.width;
-                this.resizeStartHeight = r.height;
-                document.body.style.userSelect = "none";
-            });
-        }
+        handle.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.resizing = true;
+            const r = windowEl.getBoundingClientRect();
+            this.resizeStartX = e.clientX;
+            this.resizeStartY = e.clientY;
+            this.resizeStartWidth = r.width;
+            this.resizeStartHeight = r.height;
+            document.body.style.userSelect = "none";
+        });
 
         document.addEventListener("mousemove", (e) => {
             if (!this.resizing) return;
+            let newWidth = this.resizeStartWidth + (e.clientX - this.resizeStartX);
+            let newHeight = this.resizeStartHeight + (e.clientY - this.resizeStartY);
 
-            const deltaX = e.clientX - this.resizeStartX;
-            const deltaY = e.clientY - this.resizeStartY;
-
-            let newWidth = this.resizeStartWidth + deltaX;
-            let newHeight = this.resizeStartHeight + deltaY;
-
-            const maxWidth = window.innerWidth * 0.95;
-            const maxHeight = window.innerHeight * 0.90;
-
-            newWidth = Math.min(Math.max(newWidth, this.minWidth), maxWidth);
-            newHeight = Math.min(Math.max(newHeight, this.minHeight), maxHeight);
-
-            windowEl.style.width = newWidth + "px";
-            windowEl.style.height = newHeight + "px";
+            windowEl.style.width = Math.min(Math.max(newWidth, this.minWidth), window.innerWidth * 0.95) + "px";
+            windowEl.style.height = Math.min(Math.max(newHeight, this.minHeight), window.innerHeight * 0.90) + "px";
         });
 
         document.addEventListener("mouseup", () => {
@@ -335,15 +601,6 @@ class ERPAI {
                 document.body.style.userSelect = "";
             }
         });
-
-        window.addEventListener("resize", () => {
-            const r = windowEl.getBoundingClientRect();
-            const maxWidth = window.innerWidth * 0.95;
-            const maxHeight = window.innerHeight * 0.90;
-
-            if (r.width > maxWidth) windowEl.style.width = maxWidth + "px";
-            if (r.height > maxHeight) windowEl.style.height = maxHeight + "px";
-        });
     }
 
     bindEvents() {
@@ -351,10 +608,18 @@ class ERPAI {
         const closeBtn = document.getElementById("erp-ai-close");
         const minimizeBtn = document.getElementById("erp-ai-minimize");
         const sendBtn = document.getElementById("erp-ai-send");
+        const themeBtn = document.getElementById("erp-ai-theme-toggle");
 
         if (closeBtn) closeBtn.addEventListener("click", () => this.hideWindow());
         if (minimizeBtn) minimizeBtn.addEventListener("click", () => this.hideWindow());
         if (sendBtn) sendBtn.addEventListener("click", () => this.sendMessage());
+        
+        if (themeBtn) {
+            themeBtn.addEventListener("click", () => {
+                this.isDarkMode = !this.isDarkMode;
+                this.applyTheme();
+            });
+        }
 
         if (input) {
             input.addEventListener("keydown", (e) => {
@@ -363,69 +628,92 @@ class ERPAI {
                     this.sendMessage();
                 }
             });
-
-            input.addEventListener("input", function () {
+            input.addEventListener("input", function() {
                 this.style.height = "auto";
                 this.style.height = Math.min(this.scrollHeight, 120) + "px";
             });
         }
 
+        const welcomeContainer = document.getElementById("erp-ai-welcome");
+        if (welcomeContainer) {
+            welcomeContainer.addEventListener("click", (e) => {
+                const chip = e.target.closest(".erp-ai-suggestion-chip");
+                if (chip && chip.dataset.prompt) {
+                    const inputEl = document.getElementById("erp-ai-input");
+                    if (inputEl) {
+                        inputEl.value = chip.dataset.prompt;
+                        this.sendMessage();
+                    }
+                }
+            });
+        }
+
         const fileInput = document.getElementById("erp-ai-file-input");
         const attachBtn = document.getElementById("erp-ai-attach-btn");
+        const removeFileBtn = document.getElementById("erp-ai-remove-file");
 
         if (attachBtn && fileInput) {
             attachBtn.addEventListener("click", () => fileInput.click());
             fileInput.addEventListener("change", (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-
                 this.attachedFileName = file.name;
                 const reader = new FileReader();
-
                 reader.onload = (event) => {
                     this.attachedFileContent = event.target.result;
-                    let previewEl = document.getElementById("erp-ai-file-preview");
-                    if (previewEl) {
-                        previewEl.style.display = "inline-block";
-                        previewEl.innerText = `📎 ${this.attachedFileName}`;
+                    let preview = document.getElementById("erp-ai-file-preview");
+                    let nameText = document.getElementById("erp-ai-file-name-text");
+                    if (preview && nameText) {
+                        preview.style.display = "flex";
+                        nameText.textContent = `📎 ${this.attachedFileName}`;
                     }
                 };
-
                 reader.readAsText(file);
             });
         }
 
-        document.querySelectorAll(".erp-ai-suggestion").forEach(button => {
-            button.addEventListener("click", () => {
-                if (input) {
-                    input.value = button.dataset.message || button.textContent.trim();
-                    input.dispatchEvent(new Event("input"));
-                    input.focus();
-                }
+        if (removeFileBtn) {
+            removeFileBtn.addEventListener("click", () => {
+                this.attachedFileContent = null;
+                this.attachedFileName = "";
+                const preview = document.getElementById("erp-ai-file-preview");
+                if (preview) preview.style.display = "none";
+                if (fileInput) fileInput.value = "";
             });
-        });
+        }
 
         const toggleSidebarBtn = document.getElementById("erp-ai-toggle-sidebar");
         const sidebar = document.getElementById("erp-ai-sidebar");
         if (toggleSidebarBtn && sidebar) {
-            toggleSidebarBtn.addEventListener("click", () => {
-                const isOpen = sidebar.classList.toggle("open");
-                toggleSidebarBtn.classList.toggle("active", isOpen);
-                if (isOpen) this.loadConversationsList();
+            toggleSidebarBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                sidebar.classList.toggle("open");
+                if (sidebar.classList.contains("open")) {
+                    this.loadConversationsList();
+                }
             });
         }
 
         const newChatBtn = document.getElementById("erp-ai-new-chat");
-        if (newChatBtn) {
-            newChatBtn.addEventListener("click", () => this.startNewChat());
-        }
+        if (newChatBtn) newChatBtn.addEventListener("click", () => this.startNewChat());
 
         const conversationsList = document.getElementById("erp-ai-conversations-list");
         if (conversationsList) {
             conversationsList.addEventListener("click", (e) => {
+                const deleteBtn = e.target.closest(".erp-ai-delete-conv");
+                if (deleteBtn) {
+                    e.stopPropagation();
+                    const item = deleteBtn.closest(".erp-ai-conv-item");
+                    if (item && item.dataset.name) {
+                        this.deleteConversation(item.dataset.name, item);
+                    }
+                    return;
+                }
+
                 const item = e.target.closest(".erp-ai-conv-item");
                 if (item && item.dataset.name) {
                     this.loadConversationHistory(item.dataset.name);
+                    if (sidebar) sidebar.classList.remove("open");
                 }
             });
         }
@@ -441,7 +729,8 @@ class ERPAI {
         const welcome = document.getElementById("erp-ai-welcome");
         if (welcome) welcome.style.display = "";
         document.querySelectorAll(".erp-ai-conv-item.active").forEach(el => el.classList.remove("active"));
-        this.focusInput();
+        const sidebar = document.getElementById("erp-ai-sidebar");
+        if (sidebar) sidebar.classList.remove("open");
     }
 
     loadConversationsList() {
@@ -452,40 +741,54 @@ class ERPAI {
             method: "erp_ai.api.get_user_conversations",
             callback: (r) => {
                 const data = (r.message && r.message.status === "success") ? r.message.data : [];
-
                 if (!data || data.length === 0) {
-                    listEl.innerHTML = '<div class="erp-ai-sidebar-empty">No conversations yet</div>';
+                    listEl.innerHTML = '<div style="font-size: 12px; color: var(--erp-slate); text-align:center; padding-top:25px;">No conversations yet</div>';
                     return;
                 }
-
                 listEl.innerHTML = "";
                 data.forEach(c => {
                     const item = document.createElement("div");
                     item.className = "erp-ai-conv-item" + (c.name === this.conversation ? " active" : "");
                     item.dataset.name = c.name;
-                    item.title = c.title || c.name;
-                    item.textContent = c.title || c.name;
+                    item.innerHTML = `
+                        <span class="erp-ai-conv-title">${this.escapeHtml(c.title || c.name)}</span>
+                        <button class="erp-ai-delete-conv" title="Delete chat">🗑️</button>
+                    `;
                     listEl.appendChild(item);
                 });
-            },
-            error: () => {
-                listEl.innerHTML = '<div class="erp-ai-sidebar-empty">Could not load conversations</div>';
             }
+        });
+    }
+
+    deleteConversation(conversationName, itemElement) {
+        if (typeof frappe === "undefined") return;
+        itemElement.style.opacity = "0.4";
+        
+        frappe.call({
+            method: "erp_ai.api.delete_conversation",
+            args: { conversation_name: conversationName },
+            callback: (r) => {
+                if (r.message && r.message.status === "success") {
+                    itemElement.remove();
+                    if (this.conversation === conversationName) this.startNewChat();
+                    if (typeof frappe.show_alert === "function") {
+                        frappe.show_alert({message: "Conversation deleted successfully", indicator: "green"});
+                    }
+                } else {
+                    itemElement.style.opacity = "1";
+                }
+            },
+            error: () => { itemElement.style.opacity = "1"; }
         });
     }
 
     loadConversationHistory(conversationName) {
         if (typeof frappe === "undefined") return;
-
         frappe.call({
             method: "erp_ai.api.load_conversation",
             args: { conversation_name: conversationName },
             callback: (r) => {
-                if (!r.message || r.message.status !== "success") {
-                    console.error("ERP AI: failed to load conversation", r.message);
-                    return;
-                }
-
+                if (!r.message || r.message.status !== "success") return;
                 this.conversation = r.message.name;
                 this.messages = Array.isArray(r.message.messages) ? r.message.messages : [];
 
@@ -494,15 +797,8 @@ class ERPAI {
                 const welcome = document.getElementById("erp-ai-welcome");
                 if (welcome) welcome.style.display = "none";
 
-                this.messages.forEach(m => {
-                    this.addMessage(m.content, m.role === "user" ? "user" : "assistant");
-                });
-
-                document.querySelectorAll(".erp-ai-conv-item").forEach(el => {
-                    el.classList.toggle("active", el.dataset.name === conversationName);
-                });
-
-                this.scrollToBottom();
+                this.messages.forEach(m => this.addMessage(m.content, m.role === "user" ? "user" : "assistant", false));
+                this.loadConversationsList();
             }
         });
     }
@@ -510,17 +806,17 @@ class ERPAI {
     enableDragging() {
         const windowEl = document.getElementById("erp-ai-window");
         const header = document.getElementById("erp-ai-header");
-
         if (!windowEl || !header) return;
 
-        header.addEventListener("dragstart", (e) => e.preventDefault());
+        windowEl.addEventListener("dragstart", (e) => e.preventDefault(), true);
+        header.addEventListener("dragstart", (e) => e.preventDefault(), true);
 
         header.addEventListener("mousedown", (e) => {
             if (e.target.tagName === "BUTTON" || e.target.closest("button")) return;
+            e.preventDefault();
 
             this.dragging = true;
             const rect = windowEl.getBoundingClientRect();
-
             windowEl.style.left = rect.left + "px";
             windowEl.style.top = rect.top + "px";
             windowEl.style.right = "auto";
@@ -548,7 +844,6 @@ class ERPAI {
     showWindow() {
         const win = document.getElementById("erp-ai-window");
         if (win) win.style.display = "flex";
-        this.focusInput();
     }
 
     hideWindow() {
@@ -560,30 +855,20 @@ class ERPAI {
         const win = document.getElementById("erp-ai-window");
         if (win) {
             win.style.display === "flex" ? this.hideWindow() : this.showWindow();
-        } else {
-            this.createWindow().then(() => this.showWindow());
         }
-    }
-
-    focusInput() {
-        const input = document.getElementById("erp-ai-input");
-        if (input) input.focus();
     }
 
     scrollToBottom() {
         const body = document.getElementById("erp-ai-body");
-        if (body) {
-            body.scrollTop = body.scrollHeight;
-        }
+        if (body) body.scrollTop = body.scrollHeight;
     }
 
-    async sendMessage() {
+    async sendMessage(overrideMessage = null) {
         const input = document.getElementById("erp-ai-input");
-        const message = input ? input.value.trim() : "";
-
+        const message = overrideMessage !== null ? overrideMessage : (input ? input.value.trim() : "");
         if (!message && !this.attachedFileContent) return;
 
-        if (input) {
+        if (input && overrideMessage === null) {
             input.value = "";
             input.style.height = "auto";
         }
@@ -592,12 +877,10 @@ class ERPAI {
         if (welcome) welcome.style.display = "none";
 
         let displayMessage = message;
-        if (this.attachedFileName) {
-            displayMessage += `\n[مرفق: ${this.attachedFileName}]`;
-        }
+        if (this.attachedFileName) displayMessage += `\n[مرفق: ${this.attachedFileName}]`;
 
         this.messages.push({ role: "user", content: message });
-        this.addMessage(displayMessage, "user");
+        this.addMessage(displayMessage, "user", false);
 
         let argsPayload = {
             message: message,
@@ -612,10 +895,8 @@ class ERPAI {
 
         this.attachedFileContent = null;
         this.attachedFileName = "";
-        const previewEl = document.getElementById("erp-ai-file-preview");
-        if (previewEl) previewEl.style.display = "none";
-        const fileInput = document.getElementById("erp-ai-file-input");
-        if (fileInput) fileInput.value = "";
+        const preview = document.getElementById("erp-ai-file-preview");
+        if (preview) preview.style.display = "none";
 
         this.showTyping();
 
@@ -631,29 +912,25 @@ class ERPAI {
 
             if (response && response.message && response.message.reply) {
                 if (response.message.conversation_name) {
-                    const isNewConversation = this.conversation !== response.message.conversation_name;
                     this.conversation = response.message.conversation_name;
-                    const sidebar = document.getElementById("erp-ai-sidebar");
-                    if (isNewConversation && sidebar && sidebar.classList.contains("open")) {
-                        this.loadConversationsList();
-                    }
                 }
+                let reply = response.message.reply;
+                if (Array.isArray(reply)) reply = reply.join("");
 
-                let fullReply = response.message.reply;
-                if (Array.isArray(fullReply)) {
-                    fullReply = fullReply.join("");
+                this.addMessage(reply, "assistant", true); 
+                this.messages.push({ role: "assistant", content: reply });
+                
+                const sidebar = document.getElementById("erp-ai-sidebar");
+                if (sidebar && sidebar.classList.contains("open")) {
+                    this.loadConversationsList();
                 }
-
-                this.addMessage(fullReply, "assistant");
-                this.messages.push({ role: "assistant", content: fullReply });
             } else {
-                this.addMessage("No response received from AI.", "assistant");
+                this.addMessage("No response received from AI.", "assistant", false);
             }
-
         } catch (e) {
             console.error(e);
             this.hideTyping();
-            this.addMessage("Something went wrong.", "assistant");
+            this.addMessage("Something went wrong.", "assistant", false);
         }
     }
 
@@ -661,7 +938,6 @@ class ERPAI {
         try {
             let lines = mdText.split('\n').filter(line => line.trim().includes('|'));
             let separatorIndex = lines.findIndex(line => line.match(/\|[-\s:]+\|/));
-
             if (separatorIndex < 1) return null;
 
             let parseRow = (row) => {
@@ -673,19 +949,15 @@ class ERPAI {
 
             let headers = parseRow(lines[separatorIndex - 1]);
             let data = [];
-
             for (let i = separatorIndex + 1; i < lines.length; i++) {
                 if (!lines[i].trim().includes('|')) break;
                 let cells = parseRow(lines[i]);
                 let rowObj = {};
-                headers.forEach((h, idx) => {
-                    rowObj[h] = cells[idx] !== undefined ? cells[idx] : "";
-                });
+                headers.forEach((h, idx) => { rowObj[h] = cells[idx] !== undefined ? cells[idx] : ""; });
                 data.push(rowObj);
             }
             return data.length > 0 ? data : null;
         } catch (e) {
-            console.error("Error parsing table:", e);
             return null;
         }
     }
@@ -696,7 +968,68 @@ class ERPAI {
         return div.innerHTML;
     }
 
-    addMessage(text, sender) {
+    renderContent(bubble, cleanText, isStreaming, onComplete) {
+        const tableData = this.extractTableData(cleanText);
+        if (tableData && tableData.length > 0) {
+            let textParts = cleanText.split(/\|.*\|/);
+            let textWithoutTable = textParts[0] ? textParts[0].trim() : "";
+
+            let htmlOutput = `<div class="erp-text-content" style="margin-bottom: 10px;">${window.frappe && frappe.markdown ? frappe.markdown(textWithoutTable) : this.escapeHtml(textWithoutTable)}</div>`;
+            htmlOutput += `<div style="overflow-x:auto; margin: 10px 0; border-radius: 8px; border: 1px solid var(--erp-border);"><table style="width:100%; border-collapse:collapse; font-size:12px; background:var(--erp-surface);"><thead><tr style="background:var(--erp-surface-soft);">`;
+            
+            let headers = Object.keys(tableData[0]);
+            headers.forEach(h => { htmlOutput += `<th style="padding:8px 10px; border-bottom:1px solid var(--erp-border); text-align:left; color:var(--erp-ink);">${this.escapeHtml(h)}</th>`; });
+            htmlOutput += `</tr></thead><tbody>`;
+
+            tableData.forEach(row => {
+                htmlOutput += `<tr>`;
+                headers.forEach(h => { htmlOutput += `<td style="padding:8px 10px; border-bottom:1px solid var(--erp-border); color:var(--erp-ink);">${this.escapeHtml(row[h] || '')}</td>`; });
+                htmlOutput += `</tr>`;
+            });
+            htmlOutput += `</tbody></table></div>`;
+
+            let encodedData = encodeURIComponent(JSON.stringify(tableData));
+            htmlOutput += `<button type="button" class="export-csv-btn" data-csv-payload="${encodedData}" style="cursor:pointer; background:var(--erp-surface-soft); border:1px solid var(--erp-border); color:var(--erp-ink); border-radius:8px; padding:8px; font-size:12px; font-weight:600; width:100%; margin-top:8px; transition: background 150ms;">⬇ Download (CSV)</button>`;
+
+            bubble.innerHTML = htmlOutput;
+            const exportBtn = bubble.querySelector(".export-csv-btn");
+            if (exportBtn) {
+                exportBtn.addEventListener("click", () => {
+                    try {
+                        const payload = JSON.parse(decodeURIComponent(exportBtn.dataset.csvPayload));
+                        this.downloadFallbackCSV(payload);
+                    } catch (err) { console.error(err); }
+                });
+            }
+            if (onComplete) onComplete();
+        } else {
+            if (isStreaming) {
+                bubble.classList.add("erp-typing-cursor");
+                let i = 0;
+                const speed = 12; 
+                const textLength = cleanText.length;
+                
+                const typeInterval = setInterval(() => {
+                    if (i < textLength) {
+                        let currentSubstr = cleanText.substring(0, i + 1);
+                        bubble.innerHTML = window.frappe && frappe.markdown ? frappe.markdown(currentSubstr) : this.escapeHtml(currentSubstr);
+                        i++;
+                        this.scrollToBottom();
+                    } else {
+                        clearInterval(typeInterval);
+                        bubble.classList.remove("erp-typing-cursor");
+                        bubble.innerHTML = window.frappe && frappe.markdown ? frappe.markdown(cleanText) : this.escapeHtml(cleanText);
+                        if (onComplete) onComplete();
+                    }
+                }, speed);
+            } else {
+                bubble.innerHTML = window.frappe && frappe.markdown ? frappe.markdown(cleanText) : this.escapeHtml(cleanText);
+                if (onComplete) onComplete();
+            }
+        }
+    }
+
+    addMessage(text, sender, isStreaming = false) {
         const container = document.getElementById("erp-ai-messages");
         if (!container) return;
 
@@ -705,86 +1038,56 @@ class ERPAI {
 
         const avatar = document.createElement("div");
         avatar.className = "erp-ai-avatar";
-        avatar.innerHTML = sender === "user" ? "👤" : '<div style="font-size: 11px; font-weight: bold; color: #2563eb; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;">AI</div>';
+        avatar.textContent = sender === "user" ? "👤" : "AI";
+
+        const msgContainer = document.createElement("div");
+        msgContainer.className = "erp-ai-message-container";
 
         const bubble = document.createElement("div");
         bubble.className = "erp-ai-message " + sender;
 
-        let cleanText = typeof text === "object" ? (text.reply || JSON.stringify(text)) : text;
-        cleanText = String(cleanText).replace(/<!--ERP_AI_PENDING_REPORT:[\s\S]*?-->/g, "").trim();
+        let cleanText = String(text).replace(/<!--ERP_AI_PENDING_REPORT:[\s\S]*?-->/g, "").trim();
 
         if (sender === "assistant") {
-            const tableData = this.extractTableData(String(cleanText));
+            const actionsToolbar = document.createElement("div");
+            actionsToolbar.className = "erp-ai-msg-actions";
+            actionsToolbar.innerHTML = `
+                <button class="erp-ai-action-btn erp-copy-btn" title="Copy text">📋 Copy</button>
+                <button class="erp-ai-action-btn erp-regen-btn" title="Regenerate response">🔄 Regenerate</button>
+            `;
 
-            if (tableData && tableData.length > 0) {
-                let textParts = String(cleanText).split(/\|.*\|/);
-                let textWithoutTable = textParts[0] ? textParts[0].trim() : "";
-
-                let htmlOutput = `<div class="ai-text-part" style="margin-bottom: 10px;">${
-                    window.frappe && frappe.markdown
-                        ? frappe.markdown(textWithoutTable)
-                        : this.escapeHtml(textWithoutTable)
-                }</div>`;
-
-                htmlOutput += `<div class="table-responsive" style="margin-top: 8px; margin-bottom: 8px; overflow-x: auto;">
-                    <table class="table table-bordered table-striped" style="width: 100%; background: #fff; font-size: 11px; color: #333; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background: #f1f3f5;">`;
-
-                let headers = Object.keys(tableData[0]);
-                headers.forEach(h => {
-                    htmlOutput += `<th style="padding: 6px 8px; border: 1px solid #dee2e6; text-align: right;">${this.escapeHtml(h)}</th>`;
+            actionsToolbar.querySelector(".erp-copy-btn").addEventListener("click", () => {
+                navigator.clipboard.writeText(cleanText).then(() => {
+                    if (typeof frappe !== "undefined" && frappe.show_alert) {
+                        frappe.show_alert({message: "Copied to clipboard", indicator: "green"});
+                    }
                 });
+            });
 
-                htmlOutput += `</tr></thead><tbody>`;
-
-                tableData.forEach((row, rowIndex) => {
-                    htmlOutput += `<tr style="animation-delay: ${Math.min(rowIndex * 55, 500)}ms;">`;
-                    headers.forEach(h => {
-                        htmlOutput += `<td style="padding: 6px 8px; border: 1px solid #dee2e6; text-align: right;">${this.escapeHtml(row[h] || '')}</td>`;
-                    });
-                    htmlOutput += `</tr>`;
-                });
-
-                htmlOutput += `</tbody></table></div>`;
-
-                let encodedData = encodeURIComponent(JSON.stringify(tableData));
-                htmlOutput += `
-                    <div class="message-actions" style="margin-top: 10px; clear: both; width: 100%;">
-                        <button type="button" class="btn btn-xs btn-default export-csv-btn" data-csv-payload="${encodedData}" style="cursor: pointer; background: #f8f9fa; border: 1px solid #cbd5d1; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: #2c3e50; width: 100%; box-sizing: border-box;">
-                            <i class="fa fa-download"></i> Download (CSV)
-                        </button>
-                    </div>
-                `;
-
-                bubble.innerHTML = htmlOutput;
-
-                const exportBtn = bubble.querySelector(".export-csv-btn");
-                if (exportBtn) {
-                    exportBtn.addEventListener("click", () => {
-                        try {
-                            const payload = JSON.parse(decodeURIComponent(exportBtn.dataset.csvPayload));
-                            if (typeof window.downloadReportCSV === "function") {
-                                window.downloadReportCSV(payload);
-                            } else {
-                                this.downloadFallbackCSV(payload);
-                            }
-                        } catch (err) {
-                            console.error("Failed to parse CSV payload:", err);
-                        }
-                    });
+            actionsToolbar.querySelector(".erp-regen-btn").addEventListener("click", () => {
+                if (this.messages.length >= 2) {
+                    this.messages.pop();
+                    const lastUserMsg = this.messages.pop();
+                    if (lastUserMsg) {
+                        row.remove();
+                        this.sendMessage(lastUserMsg.content);
+                    }
                 }
-            } else {
-                bubble.innerHTML = window.frappe && frappe.markdown 
-                    ? frappe.markdown(String(cleanText)) 
-                    : this.escapeHtml(cleanText);
-            }
+            });
+
+            this.renderContent(bubble, cleanText, isStreaming, () => {
+                this.scrollToBottom();
+            });
+
+            msgContainer.appendChild(bubble);
+            msgContainer.appendChild(actionsToolbar);
         } else {
             bubble.textContent = cleanText;
+            msgContainer.appendChild(bubble);
         }
 
         row.appendChild(avatar);
-        row.appendChild(bubble);
+        row.appendChild(msgContainer);
         container.appendChild(row);
         this.scrollToBottom();
     }
@@ -806,29 +1109,17 @@ class ERPAI {
     showTyping() {
         if (this.typing) return;
         this.typing = true;
-
         const container = document.getElementById("erp-ai-messages");
         if (!container) return;
 
         const row = document.createElement("div");
         row.className = "erp-ai-row assistant erp-ai-typing-row";
-
-        const avatar = document.createElement("div");
-        avatar.className = "erp-ai-avatar erp-ai-thinking";
-        avatar.innerHTML = '<div style="font-size: 11px; font-weight: bold; color: #2563eb; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;">AI</div>';
-
-        const bubble = document.createElement("div");
-        bubble.className = "erp-ai-message assistant";
-        bubble.innerHTML = `
-            <div class="erp-ai-loading-dots">
-                <span></span>
-                <span></span>
-                <span></span>
+        row.innerHTML = `
+            <div class="erp-ai-avatar">AI</div>
+            <div class="erp-ai-message-container">
+                <div class="erp-ai-loading-dots"><span></span><span></span><span></span></div>
             </div>
         `;
-
-        row.appendChild(avatar);
-        row.appendChild(bubble);
         container.appendChild(row);
         this.scrollToBottom();
     }
@@ -840,7 +1131,6 @@ class ERPAI {
     }
 }
 
-// Auto-initialize when script loads
 if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => new ERPAI());
 } else {
