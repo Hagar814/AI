@@ -11,7 +11,11 @@
   "max_tokens",
   "column_break_wajy",
   "api_key",
-  "enabled"
+  "enabled",
+  "dark_mode",
+  "section_break_advanced",
+  "max_context_messages",
+  "system_prompt"
  ],
  "fields": [
   {
@@ -51,6 +55,30 @@
    "fieldname": "enabled",
    "fieldtype": "Check",
    "label": "Enabled"
+  },
+  {
+   "default": "0",
+   "fieldname": "dark_mode",
+   "fieldtype": "Check",
+   "label": "Dark Mode"
+  },
+  {
+   "fieldname": "section_break_advanced",
+   "fieldtype": "Section Break",
+   "label": "Advanced Settings"
+  },
+  {
+   "default": "10",
+   "fieldname": "max_context_messages",
+   "fieldtype": "Int",
+   "label": "Max Context Messages",
+   "description": "عدد الرسائل السابقة التي يتم إرسالها للذكاء الاصطناعي للحفاظ على سياق المحادثة"
+  },
+  {
+   "fieldname": "system_prompt",
+   "fieldtype": "Small Text",
+   "label": "System Prompt",
+   "description": "تعليمات ثابتة توجه سلوك وأسلوب رد مساعد الـ ERP"
   }
  ],
  "grid_page_length": 50,
